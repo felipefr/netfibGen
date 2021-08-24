@@ -37,7 +37,7 @@ setParamOpt = [maxit, maxnochange, dJmin, Jtol, ampP0, alphaP, gammaP, ampA0, al
 pertPoint = 0.0 # 0.0 for regular
 
 net.asymFac = -1 # nx - ny
-net.nFibPrevision = 80
+net.nFibPrevision = 90
 
 net.createNetwork()
 net.removeVertHoriFibers()
