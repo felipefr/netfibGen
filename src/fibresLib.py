@@ -1065,7 +1065,7 @@ def writeParamFibres(net,Nparam,fignum = -1):
 	Ipos_nConnectFibre1 = 18
 	Ipos_nConnectFibre2 = 19
 	#~ Ipos_r0 = 20 # new compability
-	Ipos_r0 = 24 # old compability
+	# Ipos_r0 = 24 # old compability
 	 
 	
 	# just to update
@@ -1103,7 +1103,7 @@ def writeParamFibres(net,Nparam,fignum = -1):
 		Param[f,Ipos_normal2:Ipos_normal2 + 2] = net.normal[p2,:] - normal_bar
 		Param[f,Ipos_nConnectFibre1] = len(net.InvConnect[p1])
 		Param[f,Ipos_nConnectFibre2] = len(net.InvConnect[p2])		
-		Param[f,Ipos_r0] = net.r0[f]		
+		# Param[f,Ipos_r0] = net.r0[f]		
 		
 		
 	writeParamCustom(Param)
