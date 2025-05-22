@@ -28,15 +28,18 @@ def truss_element_stiffness_force(X, u, A, E):
     lmbda = np.linalg.norm(q) # L/L0
     b = q/lmbda # unitary deformed truss vector  
     
-    # psi = 0.5*E*(lmbda - 1)**2
-    strain = lmbda - 1
-    stress = E * strain
+
+    # nonlinear truss
+    # psi = 0.5*E*[strain(lambda)]**2, stress = dpsi/dlambda, dtang=d2psi/dlambda
+    strain = 0.5*(lmbda**2 - 1)
+    stress = E * strain * lmbda
+    dtang = 0.5*E*(3*lmbda**2-1)
 
     V = L0*A  # Volume
 
     # Internal force vector (2D)
     f_int = V * stress * (Bmat.T @ b)
-    D_mat = E * np.outer(b,b) 
+    D_mat = dtang * np.outer(b,b) 
     D_geo = stress*(np.eye(2) - np.outer(b,b))/lmbda
 
     # Tangent stiffness matrix (4x4)
@@ -44,26 +47,74 @@ def truss_element_stiffness_force(X, u, A, E):
     
     return K, f_int
 
+
+def cables_element_stiffness_force(X, u, uold, A, E, eta):
+    Bmat = np.array([[-1,0,1,0], [0,-1,0,1]]) # Delta operation
+    a = Bmat@X
+    L0 = np.linalg.norm(a) # underformed length
+    a = a/L0 # unitary underformed truss vector 
+    Bmat = Bmat/L0 # discrete gradient operator
+    
+    q = a + Bmat@u # deformed truss vector (stretch lenght)  
+    lmbda = np.linalg.norm(q) # L/L0
+    b = q/lmbda # unitary deformed truss vector  
+    
+    lmbda_old = np.linalg.norm(a + Bmat@uold) # L/L0
+
+    # nonlinear truss
+    # psi = 0.5*E*[strain(lambda)]**2, stress = dpsi/dlambda, dtang=d2psi/dlambda
+    # strain = 0.5*(lmbda**2 - 1)
+    # stress = E * strain * lmbda
+    # dtang = 0.5*E*(3*lmbda**2-1)
+
+    # nonlinear cable
+    strain = 0.5*(lmbda**2 - 1)
+    stress = E * strain * lmbda if lmbda>1.0 else 0.0
+    dtang = 0.5*E*(3*lmbda**2-1) if lmbda>1.0 else 0.0
+    
+    stress = stress + eta*(lmbda - lmbda_old)
+    dtang = dtang + eta
+
+    V = L0*A  # Volume
+
+    # Internal force vector (2D)
+    f_int = V * stress * (Bmat.T @ b)
+    D_mat = dtang * np.outer(b,b) 
+    D_geo = stress*(np.eye(2) - np.outer(b,b))/lmbda
+
+    # Tangent stiffness matrix (4x4)
+    K = V * Bmat.T@(D_mat + D_geo)@Bmat
+    
+    return K, f_int
+
+
 # ----------------------------------------
 # Global Assembly
 # ----------------------------------------
 
 # @njit
-def assemble_global(mesh, u):
+def assemble_global(mesh, u, uold, component):
     ndofs = len(u)
     data = []
     rows = []
     cols = []
     F_int = np.zeros(ndofs)
 
-    for e in range(elements.shape[0]):
+    for e in range(mesh.cells.shape[0]):
         n1, n2 = mesh.cells[e]
         dofs = np.array([2*n1, 2*n1+1, 2*n2, 2*n2+1])
         
         XL = mesh.X.flatten()[dofs]
-        uL = u[dofs]  
-        Ke, fe = truss_element_stiffness_force(XL, uL, 
-                                               mesh.param['A'][e], mesh.param['E'][e])
+        uL = u[dofs]
+        uoldL = uold[dofs]
+        
+        if(component == 'truss'):
+            Ke, fe = truss_element_stiffness_force(XL, uL, 
+                                                    mesh.param['A'][e], mesh.param['E'][e])
+
+        elif(component == 'cable'):
+            Ke, fe = cables_element_stiffness_force(XL, uL, uoldL, 
+                                                    mesh.param['A'][e], mesh.param['E'][e], mesh.param['eta'][e])
 
         F_int[dofs] += fe
 
@@ -91,16 +142,17 @@ def apply_boundary_conditions(K, F, fixed_dofs, u_fixed):
 # Newton-Raphson Solver
 # ----------------------------------------
 
-def solve_nonlinear_truss(mesh, forces, fixed_dofs, u_fixed, tol=1e-6, max_iter=30):
-    nnodes = coords.shape[0]
+def solve_nonlinear(mesh, forces, fixed_dofs, u_fixed, tol=1e-6, max_iter=30, component='truss'):
+    nnodes = mesh.X.shape[0]
     ndofs = 2 * nnodes
     u = np.zeros(ndofs)
+    uold = np.zeros(ndofs)
     
     zero_u_fixed = np.zeros_like(u_fixed)
     du = np.zeros_like(u)
     
     for k in range(max_iter):
-        K, F_int = assemble_global(mesh, u)
+        K, F_int = assemble_global(mesh, u, uold, component)
         R = forces - F_int
         
         du_fixed = u_fixed if k==0 else zero_u_fixed
@@ -109,6 +161,7 @@ def solve_nonlinear_truss(mesh, forces, fixed_dofs, u_fixed, tol=1e-6, max_iter=
         du[free_dofs] = spla.spsolve(K_mod, R_mod)
         du[fixed_dofs] = du_fixed
         
+        uold[:] = u[:]
         u += du
 
         norm_res = np.linalg.norm(R_mod)
@@ -116,7 +169,7 @@ def solve_nonlinear_truss(mesh, forces, fixed_dofs, u_fixed, tol=1e-6, max_iter=
         if norm_res < tol:
             break
         
-    return u, K
+    return u
 
 # plotting
 def plot_truss(mesh, u, scale=1.0, show_nodes=True):
@@ -132,12 +185,12 @@ def plot_truss(mesh, u, scale=1.0, show_nodes=True):
     """
     n_nodes = mesh.X.shape[0]
     u_nodes = u.reshape((n_nodes, 2))
-    coords_def = coords + scale * u_nodes
+    coords_def = mesh.X + scale * u_nodes
 
     plt.figure(figsize=(8, 6))
     for e in mesh.cells:
         n1, n2 = e
-        x_orig = coords[[n1, n2]]
+        x_orig = mesh.X[[n1, n2]]
         x_def = coords_def[[n1, n2]]
 
         # Undeformed (dashed gray)
@@ -147,7 +200,7 @@ def plot_truss(mesh, u, scale=1.0, show_nodes=True):
         plt.plot(x_def[:, 0], x_def[:, 1], 'r-', lw=2)
 
     if show_nodes:
-        for i, (x, y) in enumerate(coords):
+        for i, (x, y) in enumerate(mesh.X):
             plt.text(x, y, f'{i}', color='blue', fontsize=10)
 
     plt.axis('equal')
