@@ -18,6 +18,7 @@ sys.path.append('/home/frocha/sources/netfibGen/src/')
 
 import copy
 from fibresLib import *
+from toy_solver import *
 
 
 np.random.seed(5)
@@ -111,3 +112,22 @@ net.writeNetwork(Ndof,Nsubsteps,Nparam,fignum = 1,opInifile = 'SGP', opIncludeTr
 #~ net2.writeDefault(Ndof,Nsubsteps,Nparam,2)
 #~ net3.writeDefault(Ndof,Nsubsteps,Nparam,3)
 #~ net4.writeDefault(Ndof,Nsubsteps,Nparam,4)
+
+
+# using the toy solver
+mesh = Mesh(net.P, net.ElemFib, param = {'E': len(net.ElemFib)*[100.0] , 'A' : net.Af})
+
+ndofs = 2 * mesh.X.shape[0]
+forces = np.zeros(ndofs)
+forces[5] = -1e6  # Load at node 2, y-direction
+
+fixed_dofs = np.array([0, 1, 2, 3])  # Node 0 and 1 fixed
+u_fixed = np.array( [0.0, 0.0, 0.01, 0.0] )
+
+u, K = solve_nonlinear_truss(mesh, forces, fixed_dofs, u_fixed)
+
+
+
+
+
+

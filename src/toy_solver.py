@@ -49,8 +49,8 @@ def truss_element_stiffness_force(X, u, A, E):
 # ----------------------------------------
 
 # @njit
-def assemble_global(nnodes, mesh, u):
-    ndofs = 2 * nnodes
+def assemble_global(mesh, u):
+    ndofs = len(u)
     data = []
     rows = []
     cols = []
@@ -58,20 +58,20 @@ def assemble_global(nnodes, mesh, u):
 
     for e in range(elements.shape[0]):
         n1, n2 = mesh.cells[e]
-        XL = mesh.X[[n1,n2]].flatten()
-        uL = np.array( [ u[2*n1:2*n1+2], u[2*n2:2*n2+2]]).flatten()  
+        dofs = np.array([2*n1, 2*n1+1, 2*n2, 2*n2+1])
+        
+        XL = mesh.X.flatten()[dofs]
+        uL = u[dofs]  
         Ke, fe = truss_element_stiffness_force(XL, uL, 
                                                mesh.param['A'][e], mesh.param['E'][e])
 
-        dofs = np.array([2*n1, 2*n1+1, 2*n2, 2*n2+1])
         F_int[dofs] += fe
 
-        for i in range(4):
-            for j in range(4):
-                rows.append(dofs[i])
-                cols.append(dofs[j])
-                data.append(Ke[i, j])
-
+        grid = np.meshgrid(dofs, dofs) # x first, y second, in row-wise order
+        rows += list(grid[1].flatten()) # i runs in y
+        cols += list(grid[0].flatten()) # j runs in x
+        data += list(Ke.flatten())
+        
     K_global = sp.coo_matrix((data, (rows, cols)), shape=(ndofs, ndofs)).tocsr()
     return K_global, F_int
 
@@ -79,15 +79,13 @@ def assemble_global(nnodes, mesh, u):
 # Apply boundary conditions
 # ----------------------------------------
 
-def apply_boundary_conditions(K, F, fixed_dofs, u, u_fixed):
+def apply_boundary_conditions(K, F, fixed_dofs, u_fixed):
     all_dofs = np.arange(K.shape[0])
     free_dofs = np.setdiff1d(all_dofs, fixed_dofs)
+    
+    F_mod = F[free_dofs] - K[free_dofs][:,fixed_dofs].toarray()@u_fixed
 
-    F_mod = F.copy()
-    for i, dof in enumerate(fixed_dofs):
-        F_mod -= K[:, dof].toarray().flatten() * u_fixed[i]
-
-    return K[free_dofs][:, free_dofs], F_mod[free_dofs], free_dofs
+    return K[free_dofs][:, free_dofs], F_mod, free_dofs
 
 # ----------------------------------------
 # Newton-Raphson Solver
@@ -97,26 +95,31 @@ def solve_nonlinear_truss(mesh, forces, fixed_dofs, u_fixed, tol=1e-6, max_iter=
     nnodes = coords.shape[0]
     ndofs = 2 * nnodes
     u = np.zeros(ndofs)
-
-    for iter in range(max_iter):
-        K, F_int = assemble_global(nnodes, mesh, u)
-        R = forces - F_int
-
-        K_mod, R_mod, free_dofs = apply_boundary_conditions(K, R, fixed_dofs, u, u_fixed)
     
-        du = np.zeros_like(u)
+    zero_u_fixed = np.zeros_like(u_fixed)
+    du = np.zeros_like(u)
+    
+    for k in range(max_iter):
+        K, F_int = assemble_global(mesh, u)
+        R = forces - F_int
+        
+        du_fixed = u_fixed if k==0 else zero_u_fixed
+        K_mod, R_mod, free_dofs = apply_boundary_conditions(K, R, fixed_dofs, du_fixed)
+        
         du[free_dofs] = spla.spsolve(K_mod, R_mod)
-
+        du[fixed_dofs] = du_fixed
+        
         u += du
 
         norm_res = np.linalg.norm(R_mod)
-        print(f"Iter {iter:2d}: Residual = {norm_res:.3e}")
+        print(f"Iter {k:2d}: Residual = {norm_res:.3e}")
         if norm_res < tol:
             break
-    return u
+        
+    return u, K
 
 # plotting
-def plot_truss(coords, elements, u, scale=1.0, show_nodes=True):
+def plot_truss(mesh, u, scale=1.0, show_nodes=True):
     """
     Plot undeformed and deformed truss structure.
 
@@ -127,12 +130,12 @@ def plot_truss(coords, elements, u, scale=1.0, show_nodes=True):
         scale (float): Scale factor for displacements
         show_nodes (bool): Show node indices
     """
-    n_nodes = coords.shape[0]
+    n_nodes = mesh.X.shape[0]
     u_nodes = u.reshape((n_nodes, 2))
     coords_def = coords + scale * u_nodes
 
     plt.figure(figsize=(8, 6))
-    for e in elements:
+    for e in mesh.cells:
         n1, n2 = e
         x_orig = coords[[n1, n2]]
         x_def = coords_def[[n1, n2]]
@@ -187,11 +190,11 @@ if __name__ == "__main__":
     forces[5] = -1e6  # Load at node 2, y-direction
 
     fixed_dofs = np.array([0, 1, 2, 3])  # Node 0 and 1 fixed
-    u_fixed = np.zeros_like(fixed_dofs, dtype=float)
-
-    u = solve_nonlinear_truss(mesh, forces, fixed_dofs, u_fixed)
+    u_fixed = np.array( [0.0, 0.0, 0.01, 0.0] )
+    
+    u, K = solve_nonlinear_truss(mesh, forces, fixed_dofs, u_fixed)
 
     print("\nDisplacements:")
     print(u.reshape(-1, 2))
     
-    plot_truss(coords, elements, u, scale=10.0)
+    plot_truss(mesh, u, scale=10.0)
