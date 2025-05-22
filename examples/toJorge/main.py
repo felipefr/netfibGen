@@ -108,35 +108,73 @@ def get_network():
 
 net = get_network()
 # mesh = Mesh(net.P, net.ElemFib, param = {'E': len(net.ElemFib)*[100.0] , 'A' : net.Af + 0.1*np.random.rand(len(net.Af))})
+
 mesh = Mesh(net.P, net.ElemFib, param = {'E': len(net.ElemFib)*[100.0] , 
                                          'A' : net.Af + 0.1*np.random.rand(len(net.Af)),
+                                         # 'A' : net.Af,
                                          'eta': len(net.ElemFib)*[0.0001]})
 
 bnd_nodes = get_boundary_nodes(mesh)
 fixed_dofs = np.array([2*bnd_nodes, 2*bnd_nodes+1]).T.flatten()
-u_fixed = np.zeros((len(bnd_nodes),2))
+
 
 ndofs = 2 * mesh.X.shape[0]
 forces = np.zeros(ndofs)
 
-G = np.array([[0.1,0.1],[0.1,0.0]])
+Gmax = np.array([[0.0,0.2],[0.1,0.0]])
 yG = np.array([0.5,0.5])
 
-for i, j in enumerate(bnd_nodes):
-    u_fixed[i,:] = G@(mesh.X[j,:] - yG)
+def get_ufixed(G):
+    uD = np.zeros((len(bnd_nodes),2))
+    for i, j in enumerate(bnd_nodes):
+        uD[i,:] = G@(mesh.X[j,:] - yG)
+    
+    return uD
+
+tlist = np.linspace(0.0,1.0,10)
+Plist1 = []
+Plist2 = []
 
 
-u_fixed = u_fixed.flatten()
+for i, t in enumerate(tlist):
+    G = t*Gmax
+    u_fixed = get_ufixed(G).flatten()
+    
+    u0 = np.zeros_like(forces) if i==0 else u1
+    
+    u1 = solve_nonlinear(mesh, forces, fixed_dofs, u_fixed, u0 = u0, component = 'truss')
+    Plist1.append(homogeniseP(mesh, u1, component = 'truss')[0])
 
-u1 = solve_nonlinear(mesh, forces, fixed_dofs, u_fixed, component = 'truss')
-u2 = solve_nonlinear(mesh, forces, fixed_dofs, u_fixed, component = 'cable')
 
+for i, t in enumerate(tlist):
+    G = t*Gmax
+    u_fixed = get_ufixed(G).flatten()
+    
+    u0 = np.zeros_like(forces) if i==0 else u2
+    
+    u2 = solve_nonlinear(mesh, forces, fixed_dofs, u_fixed, u0 = u0, component = 'cable')
+    Plist2.append(homogeniseP(mesh, u2, component = 'cable')[0])
+
+
+Paux, force_list = homogeniseP(mesh, u2, component = 'cable')
 
 plot_truss(mesh, u1, scale=1.0)
 plot_truss(mesh, u2, scale=1.0)
 
+# plot_truss(mesh, u2, scale=1.0)
 
-print(np.linalg.norm(u1-u2))
+Plist1 = np.array(Plist1)
+Plist2 = np.array(Plist2)
+
+plt.title('homogenised stress P11')
+# plt.plot(tlist, Plist1[:,1,1], '-o', label = 'truss')
+# plt.plot(tlist, Plist2[:,1,1], '-o', label = 'cables')
+plt.plot(tlist, Plist1[:,1,1], '-o', label = 'truss')
+plt.plot(tlist, Plist2[:,1,1], '-o', label = 'cables')
+plt.legend()
+plt.grid()
+
+# print(np.linalg.norm(u1-u2))
 
 
 

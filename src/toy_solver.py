@@ -10,6 +10,7 @@ import numpy as np
 import scipy.sparse as sp
 import scipy.sparse.linalg as spla
 import matplotlib.pyplot as plt
+import copy 
 # from numba import njit
 
 # ----------------------------------------
@@ -30,10 +31,16 @@ def truss_element_stiffness_force(X, u, A, E):
     
 
     # nonlinear truss
-    # psi = 0.5*E*[strain(lambda)]**2, stress = dpsi/dlambda, dtang=d2psi/dlambda
-    strain = 0.5*(lmbda**2 - 1)
-    stress = E * strain * lmbda
-    dtang = 0.5*E*(3*lmbda**2-1)
+    # psi = 0.5*E*[strain(lambda)]**2, stress = dpsi/dlambda, dtang=d2psi/d2lambda
+    # strain = 0.5*(lmbda**2 - 1)
+    # stress = E * strain * lmbda
+    # dtang = 0.5*E*(3*lmbda**2-1)
+    
+    
+    strain = lmbda - 1
+    stress = E * strain 
+    dtang = E
+
 
     V = L0*A  # Volume
 
@@ -62,15 +69,20 @@ def cables_element_stiffness_force(X, u, uold, A, E, eta):
     lmbda_old = np.linalg.norm(a + Bmat@uold) # L/L0
 
     # nonlinear truss
-    # psi = 0.5*E*[strain(lambda)]**2, stress = dpsi/dlambda, dtang=d2psi/dlambda
+    # psi = 0.5*E*[strain(lambda)]**2, stress = dpsi/dlambda, dtang=d2psi/d2lambda
     # strain = 0.5*(lmbda**2 - 1)
     # stress = E * strain * lmbda
     # dtang = 0.5*E*(3*lmbda**2-1)
 
     # nonlinear cable
-    strain = 0.5*(lmbda**2 - 1)
-    stress = E * strain * lmbda if lmbda>1.0 else 0.0
-    dtang = 0.5*E*(3*lmbda**2-1) if lmbda>1.0 else 0.0
+    # strain = 0.5*(lmbda**2 - 1)
+    # stress = E * strain * lmbda if lmbda>1.0 else 0.0
+    # dtang = 0.5*E*(3*lmbda**2-1) if lmbda>1.0 else 0.0
+    
+    # nonlinear cable
+    strain = lmbda - 1
+    stress = E * strain if lmbda>1.0 else 0.0
+    dtang = E if lmbda>1.0 else 0.0
     
     stress = stress + eta*(lmbda - lmbda_old)
     dtang = dtang + eta
@@ -142,11 +154,11 @@ def apply_boundary_conditions(K, F, fixed_dofs, u_fixed):
 # Newton-Raphson Solver
 # ----------------------------------------
 
-def solve_nonlinear(mesh, forces, fixed_dofs, u_fixed, tol=1e-6, max_iter=30, component='truss'):
+def solve_nonlinear(mesh, forces, fixed_dofs, u_fixed, u0 = None, tol=1e-10, max_iter=50, component='truss'):
     nnodes = mesh.X.shape[0]
     ndofs = 2 * nnodes
-    u = np.zeros(ndofs)
-    uold = np.zeros(ndofs)
+    u = u0 if type(u0)==type(None) else np.zeros(ndofs)
+    uold = copy.deepcopy(u0) if type(u0)==type(None) else np.zeros(ndofs)
     
     zero_u_fixed = np.zeros_like(u_fixed)
     du = np.zeros_like(u)
@@ -209,6 +221,53 @@ def plot_truss(mesh, u, scale=1.0, show_nodes=True):
     plt.xlabel("X")
     plt.ylabel("Y")
     plt.show()
+    
+def homogeniseP(mesh, u, component = 'truss'):
+    
+    P = np.zeros((2,2))
+    stress_list = []
+    
+    for e in range(mesh.cells.shape[0]):
+        n1, n2 = mesh.cells[e]
+        dofs = np.array([2*n1, 2*n1+1, 2*n2, 2*n2+1])
+        
+        XL = mesh.X.flatten()[dofs]
+        uL = u[dofs]
+        
+        Bmat = np.array([[-1,0,1,0], [0,-1,0,1]]) # Delta operation
+        a = Bmat@XL
+        L0 = np.linalg.norm(a) # underformed length
+        a = a/L0 # unitary underformed truss vector 
+        Bmat = Bmat/L0 # discrete gradient operator
+        
+        q = a + Bmat@uL # deformed truss vector (stretch lenght)  
+        lmbda = np.linalg.norm(q) # L/L0
+        b = q/lmbda # unitary deformed truss vector  
+        
+        A = mesh.param['A'][e]
+        E = mesh.param['E'][e]
+        
+        V = L0*A
+        
+        # strain = 0.5*(lmbda**2 - 1)
+        # if(component == 'truss'):
+        #     stress = E * strain * lmbda
+        # elif(component == 'cable'):
+        #     stress = E * strain * lmbda if lmbda>1.0 else 0.0
+
+        strain = lmbda - 1
+        if(component == 'truss'):
+            stress = E * strain 
+        elif(component == 'cable'):
+            stress = E * strain if lmbda>1.0 else 0.0
+            
+            
+        stress_list.append(A*stress)
+        
+        P += V*stress*np.outer(b,a)
+        
+    
+    return P, stress_list
 
 class Mesh:
     def __init__(self, X, cells, param=None):
