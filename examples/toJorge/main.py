@@ -83,7 +83,7 @@ Ndof = 6
 Nsubsteps = 6
 Nparam = 29
 
-net.writeNetwork(Ndof,Nsubsteps,Nparam,fignum = 1,opInifile = 'SGP', opIncludeTri = 1, addAuxNodes = 2, addAuxNodeOnFibres = 1)
+net.writeNetwork(Ndof,Nsubsteps,Nparam,fignum = 1,opInifile = 'SGP', opIncludeTri = 0, addAuxNodes = 2, addAuxNodeOnFibres = 1)
 
 #~ print net.flagBound
 #~ print net.lfa
