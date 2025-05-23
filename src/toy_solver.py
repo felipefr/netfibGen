@@ -13,7 +13,6 @@ import matplotlib.pyplot as plt
 import copy 
 # from numba import njit
 
-# ----------------------------------------
 # Element Stiffness and Internal Force
 # ----------------------------------------
 
@@ -222,52 +221,8 @@ def plot_truss(mesh, u, scale=1.0, show_nodes=True):
     plt.ylabel("Y")
     plt.show()
     
-def homogeniseP(mesh, u, component = 'truss'):
-    
-    P = np.zeros((2,2))
-    stress_list = []
-    
-    for e in range(mesh.cells.shape[0]):
-        n1, n2 = mesh.cells[e]
-        dofs = np.array([2*n1, 2*n1+1, 2*n2, 2*n2+1])
-        
-        XL = mesh.X.flatten()[dofs]
-        uL = u[dofs]
-        
-        Bmat = np.array([[-1,0,1,0], [0,-1,0,1]]) # Delta operation
-        a = Bmat@XL
-        L0 = np.linalg.norm(a) # underformed length
-        a = a/L0 # unitary underformed truss vector 
-        Bmat = Bmat/L0 # discrete gradient operator
-        
-        q = a + Bmat@uL # deformed truss vector (stretch lenght)  
-        lmbda = np.linalg.norm(q) # L/L0
-        b = q/lmbda # unitary deformed truss vector  
-        
-        A = mesh.param['A'][e]
-        E = mesh.param['E'][e]
-        
-        V = L0*A
-        
-        # strain = 0.5*(lmbda**2 - 1)
-        # if(component == 'truss'):
-        #     stress = E * strain * lmbda
-        # elif(component == 'cable'):
-        #     stress = E * strain * lmbda if lmbda>1.0 else 0.0
 
-        strain = lmbda - 1
-        if(component == 'truss'):
-            stress = E * strain 
-        elif(component == 'cable'):
-            stress = E * strain if lmbda>1.0 else 0.0
-            
-            
-        stress_list.append(A*stress)
-        
-        P += V*stress*np.outer(b,a)
-        
-    
-    return P, stress_list
+
 
 class Mesh:
     def __init__(self, X, cells, param=None):
@@ -275,6 +230,25 @@ class Mesh:
         self.cells = cells
         self.param = param
         self.ndim = self.X.shape[1]
+        self.bnd_nodes = []
+        
+    def mark_boundary_nodes(self, tol = 1e-10):
+        x_min, y_min = self.X.min(axis=0)
+        x_max, y_max = self.X.max(axis=0)
+        
+        self.bnd_nodes = []
+        
+        for i, x in enumerate(self.X):
+            if(np.abs(x[0]-x_min)<tol or 
+               np.abs(x[1]-y_min)<tol or 
+               np.abs(x[0]-x_max)<tol or
+               np.abs(x[1]-y_max)<tol):
+                  
+                  self.bnd_nodes.append(i)
+
+        self.bnd_nodes = np.array(self.bnd_nodes, dtype = 'int')
+        return self.bnd_nodes
+
         
 
 if __name__ == "__main__":
