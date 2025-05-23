@@ -166,7 +166,10 @@ def solve_nonlinear(mesh, forces, fixed_dofs, u_fixed, u0 = None, tol=1e-10, max
         K, F_int = assemble_global(mesh, u, uold, component)
         R = forces - F_int
         
-        du_fixed = u_fixed if k==0 else zero_u_fixed
+        # check it
+        du_fixed = (u_fixed - u[fixed_dofs]) if k==0 else zero_u_fixed  
+        
+        # du_fixed = u_fixed if k==0 else zero_u_fixed
         K_mod, R_mod, free_dofs = apply_boundary_conditions(K, R, fixed_dofs, du_fixed)
         
         du[free_dofs] = spla.spsolve(K_mod, R_mod)
@@ -181,6 +184,25 @@ def solve_nonlinear(mesh, forces, fixed_dofs, u_fixed, u0 = None, tol=1e-10, max
             break
         
     return u
+
+def solve_linear(mesh, forces, fixed_dofs, u_fixed, component='truss'):
+    nnodes = mesh.X.shape[0]
+    ndofs = 2 * nnodes
+    u = np.zeros(ndofs)
+    
+    K, F = assemble_global(mesh, u, None, component) # None pour u_old
+    F+= forces
+    
+    # du_fixed = u_fixed if k==0 else zero_u_fixed
+    K_mod, F_mod, free_dofs = apply_boundary_conditions(K, F, fixed_dofs, u_fixed)
+    
+    u[free_dofs] = spla.spsolve(K_mod, F_mod)
+    u[fixed_dofs] = u_fixed
+    
+    
+    return u
+
+
 
 # plotting
 def plot_truss(mesh, u, scale=1.0, show_nodes=True):

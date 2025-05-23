@@ -8,6 +8,7 @@ Created on Wed May 21 10:44:13 2025
 
 import numpy as np
 import os, sys
+from timeit import default_timer as timer
 
 sys.path.append('../../src/')
 #~ import matrixAndFibresGeneration as mfg
@@ -110,27 +111,25 @@ Clist2 = []
 
 Gmax = np.array([[0.15,0.15],[0.1,-0.1]])
 
-
+start = timer()
+u1 = None
 for i, t in enumerate(tlist):
     G = t*Gmax
-    P, uold = homogeniseP(mesh, G, component = 'truss')
+    P, u1 = homogeniseP(mesh, G, u0 = u1, component = 'truss')
     Plist1.append(P)
-    Clist1.append(homogeniseC(mesh, G, component = 'truss'))
+    Clist1.append(homogenise_tang_ffd(mesh, G, component = 'truss'))
 
-    
 
+u2 = None
 for i, t in enumerate(tlist):
     G = t*Gmax
-    u_fixed = get_ufixed(G).flatten()
-    
-    u0 = np.zeros_like(forces) if i==0 else u2
-    
-    u2 = solve_nonlinear(mesh, forces, fixed_dofs, u_fixed, u0 = u0, component = 'cable')
-    Plist2.append(homogeniseP(mesh, u2, component = 'cable'))
-    Clist2.append(homogeniseC(mesh, u2, component = 'cable'))
+    P, u2 = homogeniseP(mesh, G, u0 = u2, component = 'cable')
+    Plist2.append(P)
+    Clist2.append(homogenise_tang_ffd(mesh, G, component = 'cable'))
 
+end = timer()
 
-Paux, force_list = homogeniseP(mesh, u2, component = 'cable')
+print("runtime: ", end-start)
 
 plot_truss(mesh, u1, scale=1.0)
 plot_truss(mesh, u2, scale=1.0)
@@ -140,11 +139,25 @@ plot_truss(mesh, u2, scale=1.0)
 Plist1 = np.array(Plist1)
 Plist2 = np.array(Plist2)
 
+
+Clist1 = np.array(Clist1)
+Clist2 = np.array(Clist2)
+
+plt.figure(1)
 plt.title('homogenised stress P11')
 # plt.plot(tlist, Plist1[:,1,1], '-o', label = 'truss')
 # plt.plot(tlist, Plist2[:,1,1], '-o', label = 'cables')
-plt.plot(tlist, Plist1[:,1,1], '-o', label = 'truss')
-plt.plot(tlist, Plist2[:,1,1], '-o', label = 'cables')
+plt.plot(tlist, Plist1[:,0,0], '-o', label = 'truss')
+plt.plot(tlist, Plist2[:,0,0], '-o', label = 'cables')
+plt.legend()
+plt.grid()
+
+plt.figure(2)
+plt.title('homogenised tangent C11')
+plt.plot(tlist, Clist1[:,0,0], '-o', label = 'C11 truss')
+plt.plot(tlist, Clist2[:,0,0], '--o', label = 'C11 cables')
+plt.plot(tlist, Clist1[:,0,1], '-o', label = 'C12 truss')
+plt.plot(tlist, Clist2[:,0,1], '--o', label = 'C12 cables')
 plt.legend()
 plt.grid()
 

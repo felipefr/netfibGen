@@ -90,3 +90,41 @@ def homogeniseP_given_disp(mesh, u, component = 'truss'):
 
 def homogeniseC(mesh, G, component = 'truss'):
     return None 
+
+    # V* a_l D e_k . Bu
+
+
+# forward finite differences
+def homogenise_tang_ffd(mesh, G, tau = 1e-7, component = 'truss'):
+    
+    P_ref, u_ref = homogeniseP(mesh, G, component = component)
+    P_ref = P_ref.flatten()
+    Gref = G.flatten()
+    n = len(Gref) 
+    base_canonic = np.eye(n)
+    Atang = np.zeros((n,n))
+    
+    for j in range(n):
+        Gp = (Gref + tau*base_canonic[j,:]).reshape((int(n/2),int(n/2)))
+        Pp  = homogeniseP(mesh, Gp, u0 = u_ref, component = component)[0].flatten()
+        Atang[:,j] = (Pp - P_ref)/tau 
+    
+    return Atang
+
+# def get_tangent_pertubation_central_difference(Gmacro, micromodel, tau = 1e-6):
+#     n = len(Gmacro)
+#     base_canonic = np.eye(n)
+#     Atang = np.zeros((n,n))
+    
+#     for j in range(n):
+#         micromodel.restart_initial_guess()
+#         micromodel.solve_microproblem(Gmacro + 0.5*tau*base_canonic[j,:])
+#         stress_per_p = micromodel.homogenise_stress()
+#         micromodel.restart_initial_guess()
+#         micromodel.solve_microproblem(Gmacro - 0.5*tau*base_canonic[j,:])
+#         stress_per_m = micromodel.homogenise_stress()
+        
+#         Atang[:,j] = (stress_per_p - stress_per_m)/tau 
+    
+#     return Atang
+
